@@ -1,0 +1,205 @@
+Predictive Modeling on Human Activity Recognition
+=================================================
+_Li Yutze,_ 19 Mar 2015
+
+- - -
+
+## Introduction
+
+Wearable devices can monitor our daily movement on multi-dimensional ways, employing delicate accelerometers, gyrometers and other electronic sensors. They have been producing massive ammount of data to be processed, encoding underlying information about the users of these devices. A traditional way of interperating the data is to use the data to predict the type of movement the user is performing. Here we used `R` (3.1.3) and the `caret` package and built an accurate predictive model to address this task, as a assignment of Coursera course [_Practical Machine Learning_](https://class.coursera.org/predmachlearn-012).
+
+The data is download directly from the course webpage, which is a preprocessed version of the raw data reported in the project of _Velloso, E._ et al. In Velloso's program, a group of tester was required to perform 5 type of movements (here simplified as capital letter A ~ E), with sensor device positioned on 4 part of the body and a set of time sequence data is produced.
+
+## Data Structure and Data Manupulation
+
+First set up wirking environmnet and attach required packages.
+
+```{r echo = T}
+setwd("~/CodeRClass/Learning")
+require(caret)
+require(lattice)
+require(reshape)
+```
+
+Now load the data sets into our working environment. Notice that for some columns in the `csv` file, missing values are represented by empty strings (i.e. `''`), so we add `na.strings = ''` to specify these columns.
+
+```{r echo = T, cache = T}
+data_train <- read.csv('./pml-training.csv',na.strings = '')
+data_test <- read.csv('./pml-testing.csv', na.strings = '')
+names(data_train)[1:20]
+```
+
+Within all variables in the data, we found some of them are 'window summaries' that only have valid value in rows that `$new_window == 'yes'`. These variables are kurtoses, skewnesses, maximums and minimums, amplitude, and statistical values like variances, averages, and standard deviations. Since the prediction of human motion should acctually based on 'instance variables' that are measured contemporaneously, so we need to remove these variables before doing analysis.
+
+```{r echo = T, cache = T}
+class_info <- data_train$classe
+vars <- names(data_train)
+# Remove general information variables and the class variable
+misc_vars <- vars %in% c('X', 'user_name', 'raw_timestamp_part_1',
+                         'raw_timestamp_part_2', 'cvtd_timestamp',
+                         'new_window', 'num_window', 'classe')
+# Remove window-summaries, using grep()
+window_vars <- grepl('kurtosis|skewness|max|min|amplitude|var|avg|stddev', vars)
+
+data_train <- data_train[!(misc_vars | window_vars)]
+data_test <- data_test[!(misc_vars | window_vars)]
+# Test any NA in the data
+any(sapply(data_train, function(x) any(is.na(x))))
+```
+
+Now that our data tables are `NA` free and notice that we copied the class column out and leaved only predictors in our data frames.
+
+## Partitioning, Preprocessing and Simple EDA
+
+### Data Partitioning and Cross Validation Method
+
+To estimate the out-of-sample ER, we need to further cut the 'training' data into a second level training and testing data. Here we used the `createDatePartition()` and extract 60% of the original training data as the cross-validating training data, and the rest as testing subset.
+
+```{r echo = T, cache = T}
+set.seed(1)
+train_ind <- createDataPartition(class_info, p = 0.6, list = F)
+
+training <- data_train[train_ind, ]
+training_class <- class_info[train_ind]
+
+testing <- data_train[-train_ind, ]
+testing_class <- class_info[-train_ind]
+```
+
+For further statistical learning process, we will use the `training` set to train the model, and use the `testing` set to check the out-of-sample error rate.
+
+### Exploratory Data Analysis and Data Preprocessing
+
+```{r echo = T, cache = T}
+vars <- names(training)
+vars[1:21]
+```
+
+Currently in our data, we have 2 groups of variables, one group is the instant measurements on 3 dimensions on 4 body location (belt, arm, forearm and dumbbel) of 3 physical quantities (accelerate, angular accelerate and displacement magnitude), and the other group is the summary of these 3-d values (indicated by `roll_`, `pitch_`, `yaw_` and `total_accel_`)
+
+For sure the correlations accross the two groups of variables are considerable, so here we compare the representativeness on the type movement accross the groups using simple EDA plots.
+
+```{r echo = T}
+stripout <- function(keyword, ...) {
+    for (i in 1:length(keyword)) {
+        vars_sub <- grepl(keyword[i], vars)
+        sub <- training[, vars_sub]
+        long <- data.frame(value = unlist(sub),
+                           variable = rep(names(sub), each = nrow(sub)),
+                           class = rep(training_class, times = ncol(sub)))
+        print(stripplot(class ~ value | variable, groups = class,
+                          data = long, alpha = 0.01, pch = 19,
+                          auto.key = F, ...))
+    }
+}
+```
+
+These function takes a regular expression string as query input, and generate the stripplots accross variables follows that pattern. We first check the summay group variables (`$roll_`, `$pitch_`, `$yaw_` and `$total_accel_`).
+
+```{r echo = T, fig.height = 2.3, fig.width = 8}
+stripout('belt$', layout = c(4, 1), relation = 'free')
+```
+
+Here we only shows the summary group variables on the `belt` for simplification, you can check for other query inputs like `'^accel'` and `'^roll'`, etc.
+
+We then checked the instant 3-d variables:
+
+```{r echo = T, fig.height = 2.3, fig.width = 8}
+stripout('(^acc).*(x$)', layout = c(4, 1), relation = 'free')
+```
+
+Since both group can explain the motion type on the same extend, and the summary group has higher information density (say, for the 3-d group, the `_x` and `_y` can be merged into one for walking which is the displacment on the x-y plane)
+
+```{r echo = T, cache = T}
+vars_summaries <- grepl('roll|pitch|yaw|total', vars)
+sub_summaries <- training[, vars_summaries]
+```
+
+Then we checked that if we used the compacked summary group would we still need to perform principle component analysis (singular value decomposition) before training. Here we manually did a SVD. The percent variance and cumulative percent variance explained by each components are plotted as following:
+
+```{r echo = T, fig.height = 3.5}
+s <- svd(t(as.matrix(sub_summaries)))
+d <- s$d
+dss <- d ** 2 / sum(d ** 2) * 100
+cumdss <- cumsum(dss)
+long <- data.frame(
+    Variance = c(dss, cumdss),
+    Component = rep(1:length(dss), 2),
+    type = factor(rep(c('absolute', 'cumulative'), each = length(dss)),
+                  levels = c('cumulative', 'absolute'))
+)
+xyplot(Variance ~ Component, groups = type, data = long, 
+       type = c('s', 'h'), ylim = c(0, 100), auto.key = T)
+```
+
+From the plot of percent variance explained, it was not hard to find the PCA was not efficient, that the first 4 components sum up explained less than 80% of the total variance. And form the following plots that compared the clusterring of movement types on x-y plots of PCA components and original variables, we can also find the PCA did not work well for spread away different classed data points
+
+```{r echo = T, fig.height = 4}
+recon <- d * t(s$v)
+xyplot(recon[1, ] + recon[2, ] ~ recon[3, ], groups = training_class,
+       alpha = 0.05, pch = 19, xlab = NULL, ylab = NULL,
+       strip = strip.custom(
+           factor.levels = c('PC1 - PC2', 'PC2 - PC3')))
+xyplot(sub_summaries[, 1] + sub_summaries[, 2] ~ sub_summaries[, 5],
+       groups = training_class, alpha = 0.05, pch = 19, xlab = NULL, ylab = NULL,
+       strip = strip.custom(
+           factor.levels = c('roll_belt - pitch_belt', 'roll_belt - roll_armt')))
+```
+
+## Modeling and Prediction
+
+Based on the reasoning in the EDA chapter, here we dicided to train the model with the summary group variable in the training data set without PCA as input. Because the projected 2-D patterns shows the distribution of variables within each class do not follows multi-dimensional normal distribution, here we employed the boosting regression method (`gbm`) to build the model.
+
+```{r echo = T, cache = T}
+training_s <- training[vars_summaries]
+testing_s <- testing[vars_summaries]
+
+set.seed(1)
+fit <- train(training_class ~ ., training_s, method = 'gbm', verbose = F)
+```
+
+After built the model, we checked the out-of-sample ER using `confusisonMatrix()`.
+
+```{r echo = T, cache = T}
+pred_train <- predict(fit, training_s)
+confusionMatrix(training_class, pred_train)
+pred_test <- predict(fit, testing_s)
+confusionMatrix(testing_class, pred_test)
+```
+
+The `gbm` method tend to be a little overfitting, but here the accuracy on the testing set is just near it on the training set, indicating that the out-of-sample ER (= `r 0.952 - 0.934`) is not high.
+
+```{r echo = T, cache = T}
+test_mat <- as.matrix(confusionMatrix(testing_class, pred_test))
+test_mat <- round(apply(test_mat, 2, function(x) x / sum(x)), 3)
+levelplot(test_mat, col.regions = gray(seq(1, 0, -0.01)),
+          xlab = 'Prediction', ylab = 'Reference',
+          panel = function(...) {
+              panel.levelplot(...)
+              panel.text(x = rep(1:5, each = 5), y = rep(1:5, 5),
+                         labels = as.character(test_mat),
+                         col = ifelse(test_mat > .6, 'white', 'black'))
+          })
+```
+
+And this plot shows the accuracies in the testing set, the darkness of the cell `(i, j)` is the precent of cases which a sample is called `i` and acctually is of class `j`. The dark diagnal in the plot indicates the high accuracy of our model.
+
+Using our model to predict the 20-sample test data, the result was:
+
+```{r echo = T, cache = T}
+query <- data_test[vars_summaries]
+answer <- predict(fit, query)
+answer
+```
+
+- - - 
+
+#### Reference
+
+- Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+    Visit [the websit](http://groupware.les.inf.puc-rio.br/har)
+
+#### Programming Environment
+
+- System: OS X Yusemite 10.10.2
+- R Version: 3.1.3
