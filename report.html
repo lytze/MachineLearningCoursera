@@ -67,13 +67,11 @@ if (window.hljs && document.readyState && document.readyState === "complete") {
 <h2>Data Structure and Data Manupulation</h2>
 <p>First set up wirking environmnet and attach required packages.</p>
 <pre class="r"><code>&gt; setwd(&quot;~/CodeRClass/Learning&quot;)
-&gt; require(caret)</code></pre>
+&gt; require(caret); require(lattice); require(reshape)</code></pre>
 <pre><code>## Loading required package: caret
 ## Loading required package: lattice
-## Loading required package: ggplot2</code></pre>
-<pre class="r"><code>&gt; require(lattice)
-&gt; require(reshape)</code></pre>
-<pre><code>## Loading required package: reshape</code></pre>
+## Loading required package: ggplot2
+## Loading required package: reshape</code></pre>
 <p>Now load the data sets into our working environment. Notice that for some columns in the <code>csv</code> file, missing values are represented by empty strings (i.e. <code>''</code>), so we add <code>na.strings = ''</code> to specify these columns.</p>
 <pre class="r"><code>&gt; data_train &lt;- read.csv(&#39;./pml-training.csv&#39;,na.strings = &#39;&#39;)
 &gt; data_test &lt;- read.csv(&#39;./pml-testing.csv&#39;, na.strings = &#39;&#39;)
@@ -144,15 +142,11 @@ if (window.hljs && document.readyState && document.readyState === "complete") {
 + }</code></pre>
 <p>These function takes a regular expression string as query input, and generate the stripplots accross variables follows that pattern. We first check the summay group variables (<code>$roll_</code>, <code>$pitch_</code>, <code>$yaw_</code> and <code>$total_accel_</code>).</p>
 <pre class="r"><code>&gt; stripout(&#39;belt$&#39;, layout = c(4, 1), relation = &#39;free&#39;)</code></pre>
-<div class="figure">
-<img src="report_files/figure-html/unnamed-chunk-7-1.png" />
-</div>
+<p><img src="report_files/figure-html/unnamed-chunk-7-1.png" /></p>
 <p>Here we only shows the summary group variables on the <code>belt</code> for simplification, you can check for other query inputs like <code>'^accel'</code> and <code>'^roll'</code>, etc.</p>
 <p>We then checked the instant 3-d variables:</p>
 <pre class="r"><code>&gt; stripout(&#39;(^acc).*(x$)&#39;, layout = c(4, 1), relation = &#39;free&#39;)</code></pre>
-<div class="figure">
-<img src="report_files/figure-html/unnamed-chunk-8-1.png" />
-</div>
+<p><img src="report_files/figure-html/unnamed-chunk-8-1.png" /></p>
 <p>Since both group can explain the motion type on the same extend, and the summary group has higher information density (say, for the 3-d group, the <code>_x</code> and <code>_y</code> can be merged into one for walking which is the displacment on the x-y plane)</p>
 <pre class="r"><code>&gt; vars_summaries &lt;- grepl(&#39;roll|pitch|yaw|total&#39;, vars)
 &gt; sub_summaries &lt;- training[, vars_summaries]</code></pre>
@@ -169,25 +163,19 @@ if (window.hljs && document.readyState && document.readyState === "complete") {
 + )
 &gt; xyplot(Variance ~ Component, groups = type, data = long, 
 +        type = c(&#39;s&#39;, &#39;h&#39;), ylim = c(0, 100), auto.key = T)</code></pre>
-<div class="figure">
-<img src="report_files/figure-html/unnamed-chunk-10-1.png" />
-</div>
+<p><img src="report_files/figure-html/unnamed-chunk-10-1.png" /></p>
 <p>From the plot of percent variance explained, it was not hard to find the PCA was not efficient, that the first 4 components sum up explained less than 80% of the total variance. And form the following plots that compared the clusterring of movement types on x-y plots of PCA components and original variables, we can also find the PCA did not work well for spread away different classed data points</p>
 <pre class="r"><code>&gt; recon &lt;- d * t(s$v)
 &gt; xyplot(recon[1, ] + recon[2, ] ~ recon[3, ], groups = training_class,
 +        alpha = 0.05, pch = 19, xlab = NULL, ylab = NULL,
 +        strip = strip.custom(
 +            factor.levels = c(&#39;PC1 - PC2&#39;, &#39;PC2 - PC3&#39;)))</code></pre>
-<div class="figure">
-<img src="report_files/figure-html/unnamed-chunk-11-1.png" />
-</div>
+<p><img src="report_files/figure-html/unnamed-chunk-11-1.png" /></p>
 <pre class="r"><code>&gt; xyplot(sub_summaries[, 1] + sub_summaries[, 2] ~ sub_summaries[, 5],
 +        groups = training_class, alpha = 0.05, pch = 19, xlab = NULL, ylab = NULL,
 +        strip = strip.custom(
 +            factor.levels = c(&#39;roll_belt - pitch_belt&#39;, &#39;roll_belt - roll_armt&#39;)))</code></pre>
-<div class="figure">
-<img src="report_files/figure-html/unnamed-chunk-11-2.png" />
-</div>
+<p><img src="report_files/figure-html/unnamed-chunk-11-2.png" /></p>
 </div>
 </div>
 <div id="modeling-and-prediction" class="section level2">
@@ -198,6 +186,25 @@ if (window.hljs && document.readyState && document.readyState === "complete") {
 &gt; 
 &gt; set.seed(1)
 &gt; fit &lt;- train(training_class ~ ., training_s, method = &#39;gbm&#39;, verbose = F)</code></pre>
+<pre><code>## Loading required package: gbm
+## Loading required package: survival
+## 
+## Attaching package: &#39;survival&#39;
+## 
+## The following object is masked from &#39;package:caret&#39;:
+## 
+##     cluster
+## 
+## Loading required package: splines
+## Loading required package: parallel
+## Loaded gbm 2.1.1
+## Loading required package: plyr
+## 
+## Attaching package: &#39;plyr&#39;
+## 
+## The following objects are masked from &#39;package:reshape&#39;:
+## 
+##     rename, round_any</code></pre>
 <p>After built the model, we checked the out-of-sample ER using <code>confusisonMatrix()</code>.</p>
 <pre class="r"><code>&gt; pred_train &lt;- predict(fit, training_s)
 &gt; confusionMatrix(training_class, pred_train)</code></pre>
@@ -276,9 +283,7 @@ if (window.hljs && document.readyState && document.readyState === "complete") {
 +                          labels = as.character(test_mat),
 +                          col = ifelse(test_mat &gt; .6, &#39;white&#39;, &#39;black&#39;))
 +           })</code></pre>
-<div class="figure">
-<img src="report_files/figure-html/unnamed-chunk-14-1.png" />
-</div>
+<p><img src="report_files/figure-html/unnamed-chunk-14-1.png" /></p>
 <p>And this plot shows the accuracies in the testing set, the darkness of the cell <code>(i, j)</code> is the precent of cases which a sample is called <code>i</code> and acctually is of class <code>j</code>. The dark diagnal in the plot indicates the high accuracy of our model.</p>
 <p>Using our model to predict the 20-sample test data, the result was:</p>
 <pre class="r"><code>&gt; query &lt;- data_test[vars_summaries]

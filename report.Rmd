@@ -1,7 +1,6 @@
 ---
 output:
   html_document:
-    fig_caption: yes
     self_contained: no
     theme: journal
 ---
@@ -23,9 +22,7 @@ First set up wirking environmnet and attach required packages.
 
 ```{r echo = T, prompt = T}
 setwd("~/CodeRClass/Learning")
-require(caret)
-require(lattice)
-require(reshape)
+require(caret); require(lattice); require(reshape)
 ```
 
 Now load the data sets into our working environment. Notice that for some columns in the `csv` file, missing values are represented by empty strings (i.e. `''`), so we add `na.strings = ''` to specify these columns.
@@ -103,7 +100,7 @@ stripout <- function(keyword, ...) {
 
 These function takes a regular expression string as query input, and generate the stripplots accross variables follows that pattern. We first check the summay group variables (`$roll_`, `$pitch_`, `$yaw_` and `$total_accel_`).
 
-```{r echo = T, fig.height = 2.3, fig.width = 8, prompt = T}
+```{r echo = T, fig.height = 2.3, fig.width = 8, prompt = T, fig.retina = T}
 stripout('belt$', layout = c(4, 1), relation = 'free')
 ```
 
@@ -111,7 +108,7 @@ Here we only shows the summary group variables on the `belt` for simplification,
 
 We then checked the instant 3-d variables:
 
-```{r echo = T, fig.height = 2.3, fig.width = 8, prompt = T}
+```{r echo = T, fig.height = 2.3, fig.width = 8, prompt = T, fig.retina = T}
 stripout('(^acc).*(x$)', layout = c(4, 1), relation = 'free')
 ```
 
@@ -124,7 +121,7 @@ sub_summaries <- training[, vars_summaries]
 
 Then we checked that if we used the compacked summary group would we still need to perform principle component analysis (singular value decomposition) before training. Here we manually did a SVD. The percent variance and cumulative percent variance explained by each components are plotted as following:
 
-```{r echo = T, fig.height = 3.5, prompt = T}
+```{r echo = T, fig.height = 3.5, prompt = T, fig.retina = T}
 s <- svd(t(as.matrix(sub_summaries)))
 d <- s$d
 dss <- d ** 2 / sum(d ** 2) * 100
@@ -141,7 +138,7 @@ xyplot(Variance ~ Component, groups = type, data = long,
 
 From the plot of percent variance explained, it was not hard to find the PCA was not efficient, that the first 4 components sum up explained less than 80% of the total variance. And form the following plots that compared the clusterring of movement types on x-y plots of PCA components and original variables, we can also find the PCA did not work well for spread away different classed data points
 
-```{r echo = T, fig.height = 4, prompt = T}
+```{r echo = T, fig.height = 4, prompt = T, fig.retina = T}
 recon <- d * t(s$v)
 xyplot(recon[1, ] + recon[2, ] ~ recon[3, ], groups = training_class,
        alpha = 0.05, pch = 19, xlab = NULL, ylab = NULL,
@@ -176,7 +173,7 @@ confusionMatrix(testing_class, pred_test)
 
 The `gbm` method tend to be a little overfitting, but here the accuracy on the testing set is just near it on the training set, indicating that the out-of-sample ER (= `r 0.952 - 0.934`) is not high.
 
-```{r echo = T, cache = T, prompt = T}
+```{r echo = T, cache = T, prompt = T, fig.retina = T}
 test_mat <- as.matrix(confusionMatrix(testing_class, pred_test))
 test_mat <- round(apply(test_mat, 2, function(x) x / sum(x)), 3)
 levelplot(test_mat, col.regions = gray(seq(1, 0, -0.01)),
